@@ -1,0 +1,74 @@
+function logProcessedRowsStats(numberToAdd) {
+  const SPREADSHEET_ID = "1dvvQkfWACu3P7mCN1llmsBrnzDeAQErzgMVX_c8tfYQ"; // put your spreadsheet ID
+  const SHEET_NAME = "Attendance Parent Contact"; // change to your sheet name
+  const CELL = "B1"; // B1 is rows of data processed. 
+
+  // Open spreadsheet and sheet
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_NAME);
+
+  // Get current value
+  let currentValue = sheet.getRange(CELL).getValue();
+
+  // Ensure it's treated as a number
+  if (isNaN(currentValue) || currentValue === "") {
+    currentValue = 0;
+  }
+
+  // Add the number and write back
+  Logger.log(`Adding ${numberToAdd} processed rows to stats sheet`)
+  const newValue = currentValue + numberToAdd;
+  sheet.getRange(CELL).setValue(newValue);
+
+  return newValue; // optional, in case you want the function to return the sum
+}
+
+function logContactStats(numberToAdd) {
+  const SPREADSHEET_ID = "1dvvQkfWACu3P7mCN1llmsBrnzDeAQErzgMVX_c8tfYQ"; // put your spreadsheet ID
+  const SHEET_NAME = "Attendance Parent Contact"; // change to your sheet name
+  const CELL = "B3"; // B3 is contacts logged. 
+
+  // Open spreadsheet and sheet
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_NAME);
+
+  // Get current value
+  let currentValue = sheet.getRange(CELL).getValue();
+
+  // Ensure it's treated as a number
+  if (isNaN(currentValue) || currentValue === "") {
+    currentValue = 0;
+  }
+
+  // Add the number and write back
+  Logger.log(`Adding ${numberToAdd} processed rows to stats sheet`)
+  const newValue = currentValue + numberToAdd;
+  sheet.getRange(CELL).setValue(newValue);
+
+  return newValue; // optional, in case you want the function to return the sum
+}
+
+function logReportGenerated(){
+  const SPREADSHEET_ID = "1dvvQkfWACu3P7mCN1llmsBrnzDeAQErzgMVX_c8tfYQ"; // put your spreadsheet ID
+  const SHEET_NAME = "Attendance Parent Contact"; // change to your sheet name
+  const CELL = "B5"; // B5 is reports generated. 
+
+  // Open spreadsheet and sheet
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(SHEET_NAME);
+
+  // Get current value
+  let currentValue = sheet.getRange(CELL).getValue();
+
+  // Ensure it's treated as a number
+  if (isNaN(currentValue) || currentValue === "") {
+    currentValue = 0;
+  }
+
+  // Add the number and write back
+  Logger.log(`Adding a new report to total`)
+  const newValue = currentValue + 1;
+  sheet.getRange(CELL).setValue(newValue);
+
+  return newValue; // optional, in case you want the function to return the sum
+}
