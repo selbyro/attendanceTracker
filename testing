@@ -1,0 +1,97 @@
+/**
+ * run this function to set up a small testing environment. Will write the combined report data to a sheet where it can be manipulated. 
+ */
+function buildTestEnviro(){
+  const files = checkReportFolder();  //quick check to ensure all files are present
+  const combinedFiles = combineFiles(files);  //combine files into one array for all students
+  writeTestData(combinedFiles)  //write coombined data to sheet. Can manually change it from there to test. 
+}
+
+
+function writeTestData(allData) {  //for writing the combined data to the google sheet
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Combined Data");
+
+  // If sheet doesn't exist, create it
+  if (!sheet) {
+    sheet = ss.insertSheet("Test");
+  } else {
+    sheet.clear(); // clear existing content
+  }
+
+  // Write allData to the sheet starting at cell A1
+  if (allData.length > 0) {
+    sheet.getRange(1, 1, allData.length, allData[0].length).setValues(allData);
+    Logger.log(`Wrote ${allData.length} rows and ${allData[0].length} columns to sheet "Test".`);
+  } else {
+    Logger.log("No data to write to sheet 'Test'.");
+  }
+}
+
+function turnSheetIntoArray(){  
+  /**
+   * turns the data from the combined data sheet into an array 
+   * so that testing can be done starting from that point in the workflow 
+   */
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Combined Data");
+
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("Sheet 'Combined Data' not found.");
+    return null;
+  }
+
+  const data = sheet.getDataRange().getValues(); // returns a 2D array
+  Logger.log(`Retrieved ${data.length} rows and ${data[0].length} columns from 'Combined Data'.`);
+  return data;
+}
+
+
+function writeAbsenceDataToSheet(absenceData) {
+  /**writes the data from the absences dictionary to a sheet */
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Total absences");
+
+  // Create sheet if it doesn't exist
+  if (!sheet) {
+    sheet = ss.insertSheet("Test");
+  } else {
+    sheet.clear(); // clear previous data
+  }
+
+  // Prepare header row
+  const headers = ["Student ID", "Student Name", "Q1", "Q2", "Q3", "Q4", "Previous Total", "Total Absences"];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  // Convert absenceData into array of rows
+  const rows = [];
+  for (let studentId in absenceData) {
+    const student = absenceData[studentId];
+    rows.push([
+      studentId,
+      student.studentName,
+      student.Q1,
+      student.Q2,
+      student.Q3,
+      student.Q4,
+      student.previousTotal,
+      student.totalAbsences
+    ]);
+  }
+
+  // Write all rows to sheet
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+}
+
+function testCategorizeAbsences() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Attendance");
+  const rows = sheet.getDataRange().getValues();
+
+  const previousTotals = getPreviousTotals();
+  const absenceData = buildNewAbsenceData(rows, previousTotals);
+
+  const categories = categorizeAbsences(absenceData);
+  Logger.log(categories);
+}
