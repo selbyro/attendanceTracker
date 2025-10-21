@@ -1,0 +1,142 @@
+function runSetUp() {
+  Logger.log("=== Running setup ===");
+  askNumberOfClasses()
+  const parentFolder = createParentFolder();
+  moveSpreadsheetToFolder(parentFolder);
+  createReportsFolder(parentFolder);
+  getUserEmail();
+  setUserName();
+  setSetUpComplete();
+
+  //build the set up complete alert
+  const name = PropertiesService.getScriptProperties().getProperty("USER_NAME");
+  const email = PropertiesService.getScriptProperties().getProperty("USER_EMAIL");
+  const numClasses = PropertiesService.getScriptProperties().getProperty("NUM_CLASSES");
+  showSetupComplete(name, email, numClasses)
+  Logger.log("=== Setup complete ===");
+}
+   
+// Create the parent folder and store its ID
+function createParentFolder() {
+  const parent = DriveApp.createFolder("Attendance Tracker");
+  const parentId = parent.getId();
+  PropertiesService.getScriptProperties().setProperty("PARENT_FOLDER", parentId);
+
+  Logger.log(`Created parent folder: ${parent.getName()}, ${parentId}`);
+  return parent;
+}
+
+// Move the active spreadsheet into the parent folder
+function moveSpreadsheetToFolder(parentFolder) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const file = DriveApp.getFileById(ss.getId());
+  const fileName = file.getName();
+
+  // Deprecated methods: addFile / removeFile show strikethrough but still work
+  const parents = file.getParents();
+  while (parents.hasNext()) {
+    const parent = parents.next();
+    Logger.log("Removing file from old parent folder: %s (%s)", parent.getName(), parent.getId());
+    parent.removeFile(file);
+  }
+  parentFolder.addFile(file);
+
+  Logger.log(`Moved spreadsheet ${fileName} with ID ${file.getId()} into parent folder (ID: ${parentFolder.getId()}`);
+}
+
+// Create "Attendance Reports" folder inside parent and store its ID
+function createReportsFolder(parentFolder) {
+  const reportsFolder = parentFolder.createFolder("Attendance Reports");
+  const reportsId = reportsFolder.getId();
+  PropertiesService.getScriptProperties().setProperty("REPORTS_FOLDER", reportsId);
+
+  Logger.log(`Created Attendance Reports folder: ${reportsFolder.getName} (ID: ${reportsId})`);
+}
+
+// Mark setup as complete
+function setSetUpComplete() {
+  PropertiesService.getScriptProperties().setProperty("SETUP_COMPLETE", "TRUE");
+  Logger.log("Set SETUP_COMPLETE = TRUE");
+}
+
+
+function askNumberOfClasses() {
+  const ui = SpreadsheetApp.getUi();
+
+  // Show a prompt with a text input
+  const response = ui.prompt(
+    "Class Setup",
+    "How many classes do you have?",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  // Check which button the user clicked
+  if (response.getSelectedButton() == ui.Button.OK) {
+    const userInput = response.getResponseText(); // This is what the user typed
+    Logger.log("User entered: " + userInput);
+
+    // You can convert it to a number if needed
+    const numClasses = Number(userInput);
+    if (isNaN(numClasses) || numClasses <= 0) {
+      ui.alert("Please enter a valid positive number.");
+      return;
+    }
+
+    ui.alert(`You have ${numClasses} classes, so this sheet will always expect ${numClasses} attendance reports in the reports folder.`); //script property will be a string. Needs converted to a number for use. 
+    PropertiesService.getScriptProperties().setProperty("NUM_CLASSES", numClasses);
+  } else {
+    Logger.log("User cancelled the prompt.");
+  }
+}
+
+/**
+ * Prompts the user for their email and saves it to script properties as "USER_EMAIL".
+ */
+function getUserEmail() {
+
+  const email = Session.getActiveUser().getEmail();
+    
+    if (email) {
+      // Save to script properties
+      PropertiesService.getScriptProperties().setProperty('USER_EMAIL', email);
+  }
+}
+
+
+function setUserName() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Ask user for input
+  const response = ui.prompt(
+    "Email Sign-off Name",
+    "What name do you want to sign off emails to counselors with?",
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  // If user pressed OK and entered text
+  if (response.getSelectedButton() == ui.Button.OK) {
+    const name = response.getResponseText().trim();
+    if (name) {
+      // Save to script property
+      PropertiesService.getScriptProperties().setProperty("USER_NAME", name);
+      ui.alert("Your email sign-off name has been saved as: " + name);
+    } else {
+      ui.alert("No name entered. Nothing was saved.");
+    }
+  } else {
+    ui.alert("Action canceled. Nothing was saved.");
+  }
+}
+
+
+function showSetupComplete(name, email, classes) {
+  const ui = SpreadsheetApp.getUi();
+  const message = 
+    "Set up complete.\n" +
+    "Number of classes: " + classes + "\n" +
+    "Email: " + email + "\n" +
+    "Name: " + name;
+  
+  ui.alert("Setup Complete", message, ui.ButtonSet.OK);
+}
+
