@@ -1,0 +1,67 @@
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu("Attendance Tools") // name of the menu
+    .addItem("Build Summary", "buildSummary")
+    .addItem("Log 3rd absence contact", "logThirdAbsence") //logs email/school status message in contact log
+    .addItem("Log 5th absence contact", "logFifthAbsence") //logs 5th absence phone call in contact log
+    .addItem("Email counselors for 7th absence", "emailCounselors")
+    .addSeparator()
+    .addItem("Set up/Reset", "setUpButton") // label in the menu, function name to run
+    .addToUi();
+}
+
+function setUpButton(){
+  const setUpComplete = PropertiesService.getScriptProperties().getProperty("SETUP_COMPLETE")
+  if (setUpComplete === "TRUE"){
+    confirmReset()
+  } else{
+    runSetUp()
+  }
+}
+
+
+
+function confirmReset() {
+  const ui = SpreadsheetApp.getUi();
+
+  // Display the alert with "Reset" and "Cancel" buttons
+  const response = ui.alert(
+    "Sheet has already been set up.",
+    "Would you like to reset it? This will clear the tracker data.",
+    ui.ButtonSet.OK_CANCEL // gives two buttons: OK and Cancel
+  );
+
+  // Check which button the user clicked
+  if (response == ui.Button.OK) {
+    // User clicked "OK" (reset)
+    Logger.log("Resetting the sheet.");
+    runSetUp();  //reruns setup, creating new parent folder and reports folder and storing IDs. 
+    clearPreviousTotals();  //clears out the previous totals.
+  } else {
+    // User clicked "Cancel"
+    Logger.log("User cancelled the reset.");
+    return
+  }
+}
+
+function clearPreviousTotals() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Previous Totals");
+  
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Sheet "Previous Totals" not found.');
+    return;
+  }
+  
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  
+  // If there's only the header row, nothing to clear
+  if (lastRow <= 1) return;
+  
+  // Clear everything below the header row
+  sheet.getRange(2, 1, lastRow - 1, lastColumn).clearContent();
+  
+  Logger.log('Previous Totals data cleared, headers retained.');
+}
+
