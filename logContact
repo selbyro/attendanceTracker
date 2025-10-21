@@ -1,0 +1,202 @@
+const contactSheetId = "1vkAtecFuS9EEScippHnRZ605FjvjK4gfBPCuup4fjD0";
+
+function logThirdAbsence() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Summary");
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 3) return;
+
+  const data = sheet.getRange(3, 1, lastRow - 2, 4).getValues(); // A-D
+  const nameAndNotes = data.map(row => [row[0], row[3]]).filter(r => r[0]);
+
+  const userEmail = checkUserEmail();
+  const today = formatTimestamp(new Date());
+
+  appendToParentContact(nameAndNotes, userEmail, today, 3, "email/School Status");
+  showLogConfirmation("Third", nameAndNotes.length);
+  Logger.log("Third absence contacts logged to parent contact form");
+}
+
+function logFifthAbsence() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Summary");
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 3) return;
+
+  const data = sheet.getRange(3, 6, lastRow - 2, 4).getValues(); // F-I
+  const nameAndNotes = data.map(row => [row[0], row[3]]).filter(r => r[0]);
+
+  const userEmail = checkUserEmail();  //gets user email from script properties, or calls the setup function to save it if it's not there. 
+  const today = formatTimestamp(new Date());
+
+  appendToParentContact(nameAndNotes, userEmail, today, 5, "phone call");
+  showLogConfirmation("Fifth", nameAndNotes.length);
+  Logger.log("Fifth absence contacts logged to parent contact form");
+}
+
+function appendToParentContact(studentList, userEmail, timestamp, absenceNumber, contactMethod) {
+  const ss = SpreadsheetApp.openById(contactSheetId);
+  const sheet = ss.getSheetByName("Form Responses 1");
+
+  const rowsToAppend = studentList.map(([fullName, contactNotes]) => {
+    if (!fullName) return null;
+
+    const nameParts = fullName.split(',');
+    const lastName = nameParts[0].trim();
+    const firstName = (nameParts[1] || '').trim();
+
+    const row = [];
+    row[0] = timestamp;        // A: Timestamp
+    row[1] = userEmail;        // B: Email
+    row[2] = firstName;        // C: First Name
+    row[3] = lastName;         // D: Last Name
+    row[5] = "Attendance";     // F: Attendance
+    row[9] = absenceNumber;    // J: Absence Number
+    row[11] = contactMethod;   // L: Contact Method
+    row[12] = contactNotes;    // M: Contact Notes
+    row[13] = "pending";       // N: pending
+
+    return row;
+  }).filter(r => r !== null);
+
+  if (rowsToAppend.length > 0) {
+    // Find the last row with data in column A
+    const lastDataRow = sheet.getRange("A:A").getValues().filter(r => r[0] !== "").length;
+
+  // Append below it
+  Logger.log("Writing data to contact form sheet")
+  sheet.getRange(lastDataRow + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);  //write values to the sheet.
+  logContactStats(rowsToAppend.length)  //logs the contacts made to the stats sheet. 
+  }
+}
+
+
+function checkUserEmail() {
+  const props = PropertiesService.getScriptProperties();
+  let email = props.getProperty("USER_EMAIL");
+  if (!email) {
+    getUserEmail();
+    email = props.getProperty("USER_EMAIL"); 
+  }
+  return email;
+}
+
+function checkUserName() {
+  const props = PropertiesService.getScriptProperties();
+  let name = props.getProperty("USER_NAME");
+  if (!name) {
+    setUserName();
+    name = props.getProperty("USER_NAME"); 
+  }
+  return name;
+}
+
+
+
+
+function emailCounselors() {
+  const counselor1Email = "rigsbeetr@hickoryschools.net"; // counselor for A-O. 
+  const counselor2Email = "kummerra@hickoryschools.net"; // counselor H-O  u
+  const counselor3Email = "stephensan@hickoryschools.net"; // counselor P-Z  
+  const userName = PropertiesService.getScriptProperties().getProperty("USER_NAME");
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Summary");
+
+  // Get all rows from column K (11) starting at row 2
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return; // nothing to process
+
+  const namesColumn = sheet.getRange(3, 11, lastRow - 1, 1).getValues(); // column K
+  const listAG = []; //Rigsebee
+  const listHO = []; //Kummer
+  const listPZ = []; //Stephens
+  
+
+  // Split names into A-G, H-O and P-Z by last name
+  namesColumn.forEach(([fullName]) => {
+    if (!fullName) return;
+
+    const lastName = fullName.split(',')[0].trim();
+    const firstLetter = lastName[0].toUpperCase();
+
+    if (firstLetter >= 'A' && firstLetter <= 'G') {
+      listAG.push(fullName);
+    } 
+    if (firstLetter >= 'H' && firstLetter <= 'O') {
+      listHO.push(fullName);
+    }
+    else if (firstLetter >= 'P' && firstLetter <= 'Z') {
+      listPZ.push(fullName);
+    }
+  });
+
+  // Send emails
+  if (listAG.length > 0){
+  sendStudentEmail(counselor1Email, "Ms. Rigsbee", "Seventh Absences", listAG, userName);
+  } 
+  if (listHO.length > 0){
+  sendStudentEmail(counselor2Email, "Ms. Kummer", "Seventh Absences", listHO, userName);
+  } 
+  if (listPZ.length > 0){
+  sendStudentEmail(counselor3Email, "Mr. Stephens", "Seventh Absences", listPZ, userName);
+  }
+  showCounselorConfirmation();
+}
+
+/**
+ * Sends an HTML email with a student list. If list is empty, says "No students in this range."
+ * @param {string} address - Email address
+ * @param {string} recipient - Name for salutation
+ * @param {string} subject - Email subject
+ * @param {Array} studentList - Array of student names
+ */
+function sendStudentEmail(address, recipient, subject, studentList, senderName) {  //add a place for the sender name. 
+  let htmlBody = "";
+
+  if (studentList.length > 0) {
+    htmlBody = buildHtmlEmailBody(recipient, studentList, senderName);
+  
+    Logger.log(`Sending email to ${recipient}`)
+    MailApp.sendEmail({
+      to: address,
+      subject: subject,
+      htmlBody: htmlBody
+    });
+  }
+}
+
+/**
+ * Builds an HTML email body with a bulleted list of student names.
+ * @param {Array} studentList - Array of student names
+ * @returns {string} HTML string
+ */
+function buildHtmlEmailBody(recipient, studentList, senderName) {
+  const listItems = studentList.map(name => `<li>${name}</li>`).join('\n');
+  Logger.log(`Building email body for ${recipient}.`)
+  const htmlBody = `
+    <p>Hello ${recipient},</p>
+    <p>Here are the students who have accumulated 7 absences since I last informed you:</p>
+    <ul>
+      ${listItems}
+    </ul>
+    <p>Sincerely,<br>${senderName}</p>
+  `;
+
+  return htmlBody;
+}
+
+function showLogConfirmation(number, dataLength) {
+  //number is the number of absences for the data. i.e. "third" or "fifth"
+  const ui = SpreadsheetApp.getUi();
+  const message = 
+    `Logged ${dataLength} entries to parent contact form for ${number} absences.`
+  
+  ui.alert("Success", message, ui.ButtonSet.OK);
+}
+
+function showCounselorConfirmation(){
+  const ui = SpreadsheetApp.getUi();
+  const message = 
+    `Seventh absence data sent to counselors.`
+  
+  ui.alert("Success", message, ui.ButtonSet.OK);
+}
+
