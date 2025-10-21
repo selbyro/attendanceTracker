@@ -1,0 +1,336 @@
+function buildSummary(){
+  const files = checkReportFolder();  //quick check to ensure all files are present
+
+  const combinedFiles = combineFiles(files);  //combine files into one array for all students
+
+  /** 
+  Turn this section on for testing. Look at testing file to set up testing environment. Run function to send combined data 
+  to a sheet where it can be maniulated manually. Then comment out the combinedFiles above and get the combined files from turnSheetIntoArray. 
+  Turns the combined data sheet (hidden for implementation) into the array that would be used in implementation. 
+
+  const combinedFiles = turnSheetIntoArray(); //uses the data from the combined data sheet, turned back into the array it would be for implementation. 
+  */
+
+  const previousTotals = getPreviousTotals();  //complie data from Previous Totals sheet
+
+  const absenceDict = buildNewAbsenceData(combinedFiles, previousTotals);  //build the dictionary of absence data for each student
+
+  writeAbsenceDataToSheet(absenceDict)  //writes data to Absence Totals sheet for debugging. (nothing accesses this sheet)
+
+  categorizeAbsences(absenceDict);  //compares student totals to 3-5-7 rule and builds summary on Summary sheet
+
+  updatePreviousTotals(absenceDict);  //updates the Previous Totals sheet with the data from the most recent reports
+
+  deleteAttendanceReports()  //deletes the attendance reports from Reports folder. 
+
+}
+
+function checkReportFolder(){
+  const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+
+  //get the Attendance report folder ID
+  const reportsFolderId = props.getProperty("REPORTS_FOLDER");
+  if (!reportsFolderId){
+    ui.alert( "Error: Attendance Folder ID not found. Ensure set up has been completed.");
+    return;
+  }
+  const reportsFolder = DriveApp.getFolderById(reportsFolderId);
+
+  //count number of files in folder
+  const filesArray = [];
+  const files = reportsFolder.getFiles();
+  while (files.hasNext()) {
+    filesArray.push(files.next());
+  }
+  const fileCount = filesArray.length;
+
+  Logger.log(`number of files in attendance report folder: ${fileCount}`);
+
+  const numClasses = Number(props.getProperty("NUM_CLASSES"));
+
+  //check to see if property is set correctly
+  if (!numClasses){
+  ui.alert("Number of classes is set as 0, or not set. Ensure set up has been completed.")
+  return;
+  } 
+
+  if (fileCount === numClasses){
+    Logger.log(`Correct number of files (${fileCount} detected. Initializing file combination)`);
+    //combine the files
+    return filesArray; //will be output of function if successful
+  } else {
+    ui.alert(
+      "Mismatch detected",
+      `${fileCount} files found in folder. This is inconsistent with your ${numClasses} classes`,
+      ui.ButtonSet.OK
+    );
+  }
+}
+
+
+
+function combineFiles(files){
+  //checks files for duplicates. Exits with alert if duplicates found
+  //needs to take the set of files from the reports folder and combine them together in an array. Set of combined rows is output
+  const ui = SpreadsheetApp.getUi();
+  const allData = [];
+  const seenIds = new Set(); 
+  let headerAdded = false;
+
+
+  for (const file of files) {
+    //process each individual file
+    const content = file.getBlob().getDataAsString();
+    const rows = Utilities.parseCsv(content);
+
+    if (rows.length < 2){
+      Logger.log(`Skipping file ${file.getName()} because it doesn't have enough rows`);
+      continue;
+    }
+
+    const identifier = rows[1][0]; //second row, first column (0 indexed)
+
+    
+    if (seenIds.has(identifier)){  //checks to see if the first name in the file was the first name in a previous file
+      let response = ui.alert(
+        "Duplicate file detected",
+        `${identifier} is the first student in 2 files. Press OK to delete the reports and start over`,
+        ui.ButtonSet.OK_CANCEL
+        )
+
+      if (response === ui.Button.OK){
+      deleteAttendanceReports();  //deletes files in reports folder for user to start over. 
+      }
+
+      return null; //returns nothing if there are duplicate files
+
+    } else {
+      seenIds.add(identifier); //adds the first name from the file to the list of first names. 
+    }
+
+    if (!headerAdded) {
+      allData.push(...rows); // include header for the first file
+      headerAdded = true;
+    } else {
+      allData.push(...rows.slice(1)); // skip header for subsequent files
+    }
+  }
+  
+  //if it's made it this far, there are no duplicates and the combined data will be returned. 
+  Logger.log(`Combined data from ${seenIds.size} valid files. Total rows: ${allData.length}.`);
+  logProcessedRowsStats(allData.length); //logs how many rows of data have been processed to stats sheet
+  logReportGenerated();
+  return allData  
+
+}
+
+function getPreviousTotals() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Previous Totals");
+  if (!sheet) {
+    throw new Error("Sheet 'Previous Totals' not found.");
+  }
+  Logger.log("Compliling previous totals")
+  const rows = sheet.getDataRange().getValues();
+  const previousTotals = {};
+
+  // Loop through rows, skipping header row (assume first row is header)
+  for (let r = 1; r < rows.length; r++) {
+    const studentId = rows[r][0]; // column 1
+    const total = parseInt(rows[r][2], 10); // column 3
+
+    if (!isNaN(total)) {
+      previousTotals[studentId] = total;
+    }
+  }
+
+  return previousTotals;
+}
+
+
+function buildNewAbsenceData(rows, previousTotals) {
+  /**
+  rows: 2D array of attendance data from sheet (including header row)
+  previousTotals: object keyed by student ID with previous totals
+  Takes the combined attendance data, and finds the totals for each student by summing thier totals for
+  their first quarter row and second quarter row. Also accesses the previous totals. Builds a dictionary for each student 
+  that has their attendance data, structured:
+  absenceData[studentId] = {
+        studentName: name,
+        Q1: 0,
+        Q2: 0,
+        Q3: 0,
+        Q4: 0,
+        totalAbsences: 0,
+        previousTotal: 0  
+      }
+  */
+  let absenceData = {};
+  
+  Logger.log("Processing student attendance data")
+  for (let r = 1; r < rows.length; r++) { // skip header
+    let studentName = rows[r][0].trim();
+    let studentId = rows[r][2].trim().slice(1); // remove the '#' from ID
+    let quarter = rows[r][3].trim();           // e.g., "Q1", "Q2"
+    let totalAbsent = parseInt(rows[r][8], 10); // total absences for that row
+
+    // Initialize subdictionary if it doesn't exist
+    if (!absenceData[studentId]) {
+      absenceData[studentId] = {
+        studentName: studentName,
+        Q1: 0,
+        Q2: 0,
+        Q3: 0,
+        Q4: 0,
+        totalAbsences: 0,
+        previousTotal: 0  // initialize all values if hte student doesn't yet have an entry
+      };
+
+      // If this student exists in previousTotals, set it
+      if (previousTotals[studentId]) {
+        absenceData[studentId].previousTotal = previousTotals[studentId];
+      }
+    }
+
+    // Add absences for this quarter
+    if (!isNaN(totalAbsent)) {
+      absenceData[studentId][quarter] += totalAbsent;
+      // Update total absences
+      absenceData[studentId].totalAbsences =
+        absenceData[studentId].Q1 +
+        absenceData[studentId].Q2 +
+        absenceData[studentId].Q3 +
+        absenceData[studentId].Q4;
+    }
+  }
+  Logger.log(`processed data for ${Object.keys(absenceData).length} students.`)
+  return absenceData;
+}
+
+function categorizeAbsences(absenceData) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const summarySheet = ss.getSheetByName("Summary");
+
+  Logger.log("Clearing old summary")
+  // Clear old summary ranges before writing new data
+  summarySheet.getRange("A3:D").clearContent();
+  summarySheet.getRange("F3:I").clearContent();
+  summarySheet.getRange("K3:M").clearContent();
+  summarySheet.getRange("O2:O").clearContent();
+  // Q column is cumulative, so don’t clear it
+
+  // Track row counters for each threshold column group
+  let row3 = 3;  // for thirdAbsence (A–C)
+  let row5 = 3;  // for fifthAbsence (F–H)
+  let row7 = 3;  // for seventhAbsence (K–M)
+  let row10 = 2; // for tenthAbsence (O)
+
+  Logger.log("Building summary based on 3-5-7-10 thresholds.")
+  for (const id in absenceData) {
+    const name = absenceData[id].studentName;
+    const total = absenceData[id].totalAbsences;
+    const prevTotal = absenceData[id].previousTotal || 0;
+    const increase = total - prevTotal;
+
+    // Third absence threshold
+    if (prevTotal < 3 && total >= 3) {
+      summarySheet.getRange(row3, 1, 1, 3).setValues([[name, total, increase]]);
+      row3++;
+    }
+
+    // Fifth absence threshold
+    if (prevTotal < 5 && total >= 5) {
+      summarySheet.getRange(row5, 6, 1, 3).setValues([[name, total, increase]]);
+      row5++;
+    }
+
+    // Seventh absence threshold
+    if (prevTotal < 7 && total >= 7) {
+      summarySheet.getRange(row7, 11, 1, 3).setValues([[name, total, increase]]);
+      row7++;
+    }
+
+    // Tenth absence threshold
+    if (prevTotal < 10 && total >= 10) {
+      summarySheet.getRange(row10, 15).setValue(name);
+      row10++;
+
+      // Also append to column Q (cumulative list of >10 absences)
+      const lastRowQ = summarySheet.getRange("Q" + summarySheet.getMaxRows()).getNextDataCell(SpreadsheetApp.Direction.UP).getRow();
+      summarySheet.getRange(lastRowQ + 1, 17).setValue(name);
+    }
+  }
+}
+
+function updatePreviousTotals(data){
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Previous Totals");
+
+  if (!sheet){
+    Logger.log("No Previous Totals sheet detected. Creating sheet.")
+    sheet = ss.insertSheet("Previous Totals");
+  }
+
+  Logger.log("Clearing old totals.")
+  if (sheet.getLastRow() > 1) {
+  // Clear columns A–C starting from row 2
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).clearContent();
+  }
+
+  const rowsToAppend = []
+  for (const id in data){
+    const student = data[id];
+    rowsToAppend.push([
+      id,
+      student.studentName,
+      student.totalAbsences
+    ]);
+  }
+  Logger.log("updating Previous Totals sheet with new totals.")
+  if (sheet.getLastRow() > 0){
+    sheet.getRange(2,1,rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+  };
+
+  logLastDateRun() //adds date to indicate last date a summary was generated. 
+}
+
+function logLastDateRun(){
+  today = new Date();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Previous Totals")
+  sheet.getRange(1,6).setValue(today);
+}
+
+
+function deleteAttendanceReports() {
+  const FOLDER_ID = PropertiesService.getScriptProperties().getProperty("REPORTS_FOLDER");
+  const folder = DriveApp.getFolderById(FOLDER_ID);
+
+  // Get all files in the folder
+  const files = folder.getFiles();
+  let deletedCount = 0;
+
+  while (files.hasNext()) {
+    let file = files.next();
+    file.setTrashed(true); // move file to trash
+    deletedCount++;
+  }
+
+  Logger.log(
+    deletedCount > 0 
+      ? deletedCount + " files deleted from Attendance Reports folder." 
+      : "No files found to delete."
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
